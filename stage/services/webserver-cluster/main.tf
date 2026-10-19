@@ -2,12 +2,6 @@ provider "aws" {
     region = "us-east-2"
 }
 
-# variable "server_port" {
-#     description = "The port the server will use for HTTP requests"
-#     type        = number
-#     default     = 8080
-# }
-
 data "aws_vpc" "default" {
     default = true
 }
@@ -19,18 +13,26 @@ data "aws_subnets" "default" {
     }
 }
 
+data "terraform_remote_state" "db" {
+    backend = "s3"
+
+    config = {
+        bucket = "backon-learn-terraform-state"
+        key    = "stage/services/data-stores/terraform.tfstate"
+        region = "us-east-2"
+    }
+}
+
 resource "aws_launch_template" "example" {
     image_id             = "ami-0ea1cddefe0c4aed5"
     instance_type        = "t3.micro"
     vpc_security_group_ids = [aws_security_group.instance.id]
 
-    user_data = base64encode(
-                <<-EOF
-                #!/bin/bash
-                echo "Hello World!" > index.html
-                nohup busybox httpd -f -p ${var.server_port} &
-                EOF
-            )
+    user_data = base64encode(templatefile("user-data.sh", {
+        db_address  = data.terraform_remote_state.db.outputs.address
+        db_port     = data.terraform_remote_state.db.outputs.port
+        server_port = var.server_port
+    }))
 
     lifecycle {
         create_before_destroy = true
